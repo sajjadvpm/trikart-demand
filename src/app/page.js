@@ -214,24 +214,56 @@ function NewRequestForm({ user, branches, categories, onSubmit, onCancel }) {
 // ══════════════════════════════════════
 // REQUEST CARD
 // ══════════════════════════════════════
-function RequestCard({ req, onStatusChange, canEdit, isVendor }) {
+const STATUS_BTN = {
+  Pending:   "border-amber-300 bg-amber-50 text-amber-700",
+  Contacted: "border-blue-300 bg-blue-50 text-blue-700",
+  Fulfilled: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  Cancelled: "border-red-300 bg-red-50 text-red-700",
+};
+const STATUS_ACTIVE = {
+  Pending:   "bg-amber-500 text-white border-amber-500",
+  Contacted: "bg-blue-600 text-white border-blue-600",
+  Fulfilled: "bg-emerald-600 text-white border-emerald-600",
+  Cancelled: "bg-red-500 text-white border-red-500",
+};
+
+function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, branches, userRole }) {
   const [expanded, setExpanded] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
   const timeAgo = (iso) => {
     const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
     return d === 0 ? "Today" : d === 1 ? "Yesterday" : `${d}d ago`;
   };
 
+  const handleStatus = async (newStatus) => {
+    if (newStatus === req.status || !canEdit) return;
+    setUpdating(true);
+    await onStatusChange(req.id, newStatus);
+    setUpdating(false);
+  };
+
+  const handleBranch = async (e) => {
+    if (e.target.value === req.branch_id) return;
+    setUpdating(true);
+    await onBranchChange(req.id, e.target.value);
+    setUpdating(false);
+  };
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+    <div className={`bg-white rounded-2xl border overflow-hidden shadow-sm transition ${updating ? "opacity-60" : "border-slate-100"}`}>
       <div onClick={() => setExpanded(!expanded)} className="px-4 py-3.5 cursor-pointer">
         <div className="flex justify-between items-start mb-1.5">
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${URGENCY_DOT[req.urgency] || "bg-slate-400"}`} />
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${URGENCY_DOT[req.urgency] || "bg-slate-400"}`} />
             <span className="text-sm font-bold text-slate-900">
               {isVendor ? req.product_description : req.customer_name}
             </span>
           </div>
-          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${STATUS_STYLE[req.status]}`}>{req.status}</span>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${STATUS_STYLE[req.status]}`}>{req.status}</span>
+            <span className="text-slate-300 text-xs">{expanded ? "▲" : "▼"}</span>
+          </div>
         </div>
         {!isVendor && <p className="text-sm text-slate-600 pl-4 font-medium">{req.product_description}</p>}
         <div className="flex gap-3 pl-4 mt-1 text-[11px] text-slate-400 font-mono">
@@ -240,29 +272,57 @@ function RequestCard({ req, onStatusChange, canEdit, isVendor }) {
           <span>{req.branch_name || req.branches?.name || "—"}</span>
         </div>
       </div>
+
       {expanded && (
-        <div className="px-4 pb-4 border-t border-slate-50">
-          <div className="pt-3 grid grid-cols-2 gap-2.5 text-xs">
+        <div className="px-4 pb-4 border-t border-slate-100">
+          {/* Details */}
+          <div className="pt-3 grid grid-cols-2 gap-2.5 text-xs mb-3">
             {!isVendor && (
               <>
-                <div><span className="text-slate-400 font-semibold block mb-0.5">Phone</span><span className="text-slate-700">{req.customer_phone}</span></div>
+                <div><span className="text-slate-400 font-semibold block mb-0.5">Phone</span><span className="text-slate-700 font-mono">{req.customer_phone}</span></div>
                 <div><span className="text-slate-400 font-semibold block mb-0.5">By</span><span className="text-slate-700">{req.created_by_name || "—"}</span></div>
               </>
             )}
             <div><span className="text-slate-400 font-semibold block mb-0.5">Type</span><span className="text-slate-700">{req.request_type}</span></div>
             <div><span className="text-slate-400 font-semibold block mb-0.5">Urgency</span><span className="text-slate-700">{req.urgency}</span></div>
           </div>
-          {req.notes && <p className="text-xs text-slate-500 mt-2.5 italic bg-slate-50 px-3 py-2 rounded-lg">📝 {req.notes}</p>}
-          {!isVendor && (
-            <div className="flex gap-2 mt-3">
-              <a href={`tel:${req.customer_phone?.replace(/\s/g, "")}`} className="flex-1 py-2.5 text-xs font-semibold text-center bg-green-50 text-green-600 rounded-lg border border-green-200">📞 Call</a>
-              {canEdit && req.status !== "Fulfilled" && req.status !== "Cancelled" && (
-                <select value={req.status} onChange={(e) => onStatusChange(req.id, e.target.value)}
-                  className="flex-[2] py-2.5 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700">
-                  {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
+
+          {req.notes && <p className="text-xs text-slate-500 mb-3 italic bg-slate-50 px-3 py-2 rounded-lg">📝 {req.notes}</p>}
+
+          {!isVendor && canEdit && (
+            <>
+              {/* Status Buttons */}
+              <div className="mb-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Change Status</p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {STATUSES.map((s) => (
+                    <button key={s} onClick={() => handleStatus(s)} disabled={updating}
+                      className={`py-2 text-[11px] font-bold rounded-lg border-2 transition ${req.status === s ? STATUS_ACTIVE[s] : STATUS_BTN[s]}`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Branch Reassign (admin only) */}
+              {userRole === "admin" && branches?.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Reassign Branch</p>
+                  <select value={req.branch_id || ""} onChange={handleBranch} disabled={updating}
+                    className="w-full px-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 text-slate-700 outline-none focus:border-blue-400">
+                    {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
               )}
-            </div>
+            </>
+          )}
+
+          {/* Call Button */}
+          {!isVendor && (
+            <a href={`tel:${req.customer_phone?.replace(/\s/g, "")}`}
+              className="flex items-center justify-center gap-2 w-full py-2.5 text-xs font-semibold bg-green-50 text-green-600 rounded-xl border border-green-200 mt-1">
+              📞 Call {req.customer_name}
+            </a>
           )}
         </div>
       )}
@@ -273,7 +333,7 @@ function RequestCard({ req, onStatusChange, canEdit, isVendor }) {
 // ══════════════════════════════════════
 // REQUEST LIST
 // ══════════════════════════════════════
-function RequestList({ user, branches, onStatusChange, refreshKey }) {
+function RequestList({ user, branches, onStatusChange, onBranchChange, refreshKey }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
@@ -338,7 +398,7 @@ function RequestList({ user, branches, onStatusChange, refreshKey }) {
         ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-slate-400"><div className="text-4xl mb-2">📋</div><p className="text-sm font-semibold">No requests found</p></div>
         ) : filtered.map((r) => (
-          <RequestCard key={r.id} req={r} onStatusChange={onStatusChange} canEdit={user.role !== "salesman" || r.created_by === user.id} isVendor={false} />
+          <RequestCard key={r.id} req={r} onStatusChange={onStatusChange} onBranchChange={onBranchChange} canEdit={user.role !== "salesman" || r.created_by === user.id} isVendor={false} branches={branches} userRole={user.role} />
         ))}
       </div>
     </div>
@@ -561,6 +621,12 @@ export default function App() {
     setScreen("list");
   };
 
+  const handleBranchChange = async (id, newBranchId) => {
+    await supabase.from("product_requests").update({ branch_id: newBranchId }).eq("id", id);
+    setRefreshKey((k) => k + 1);
+    showToast("Branch updated!");
+  };
+
   const handleStatusChange = async (id, newStatus) => {
     await supabase.from("product_requests").update({ status: newStatus }).eq("id", id);
     setRefreshKey((k) => k + 1);
@@ -616,7 +682,7 @@ export default function App() {
       ) : isVendor ? (
         <VendorPortal user={user} branches={branches} categories={categories} />
       ) : (
-        <RequestList user={user} branches={branches} onStatusChange={handleStatusChange} refreshKey={refreshKey} />
+        <RequestList user={user} branches={branches} onStatusChange={handleStatusChange} onBranchChange={handleBranchChange} refreshKey={refreshKey} />
       )}
 
       {/* Toast */}
