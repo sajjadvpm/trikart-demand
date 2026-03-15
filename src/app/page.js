@@ -251,7 +251,7 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
   };
 
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden shadow-sm transition ${updating ? "opacity-60" : "border-slate-100"}`}>
+    <div className={`bg-white rounded-2xl border-2 overflow-hidden shadow-sm transition ${updating ? "opacity-60" : req.vendor_response === "can_supply" ? "border-l-4 border-emerald-400 border-t-slate-100 border-r-slate-100 border-b-slate-100" : req.vendor_response === "cannot_supply" ? "border-l-4 border-red-400 border-t-slate-100 border-r-slate-100 border-b-slate-100" : "border-slate-100"}`}>
       <div onClick={() => setExpanded(!expanded)} className="px-4 py-3.5 cursor-pointer">
         <div className="flex justify-between items-start mb-1.5">
           <div className="flex items-center gap-2">
@@ -266,11 +266,24 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
           </div>
         </div>
         {!isVendor && <p className="text-sm text-slate-600 pl-4 font-medium">{req.product_description}</p>}
-        <div className="flex gap-3 pl-4 mt-1 text-[11px] text-slate-400 font-mono">
+        <div className="flex gap-3 pl-4 mt-1 text-[11px] text-slate-400 font-mono flex-wrap">
           <span>{req.category_name || req.categories?.name || "—"}</span>
           <span>{timeAgo(req.created_at)}</span>
           <span>{req.branch_name || req.branches?.name || "—"}</span>
         </div>
+        {/* Vendor Badge — visible without expanding */}
+        {!isVendor && req.vendor_response && (
+          <div className="pl-4 mt-1.5 flex items-center gap-2 flex-wrap">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${req.vendor_response === "can_supply" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+              {req.vendor_response === "can_supply" ? "✅ Vendor: Can Supply" : "❌ Vendor: Cannot Supply"}
+            </span>
+            {req.vendor_delivery_date && (
+              <span className="text-[10px] font-semibold text-emerald-600">
+                📅 {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {expanded && (
