@@ -289,6 +289,24 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
 
           {req.notes && <p className="text-xs text-slate-500 mb-3 italic bg-slate-50 px-3 py-2 rounded-lg">📝 {req.notes}</p>}
 
+          {/* Vendor Response Badge */}
+          {req.vendor_response && (
+            <div className={`mb-3 px-3 py-2.5 rounded-xl border ${req.vendor_response === "can_supply" ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-sm">{req.vendor_response === "can_supply" ? "✅" : "❌"}</span>
+                <span className={`text-xs font-bold ${req.vendor_response === "can_supply" ? "text-emerald-700" : "text-red-700"}`}>
+                  Vendor: {req.vendor_response === "can_supply" ? "Can Supply" : "Cannot Supply"}
+                </span>
+              </div>
+              {req.vendor_delivery_date && (
+                <p className="text-[11px] text-emerald-600 font-semibold ml-6">
+                  📅 Delivery by {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </p>
+              )}
+              {req.vendor_note && <p className="text-[11px] text-slate-500 italic ml-6 mt-0.5">"{req.vendor_note}"</p>}
+            </div>
+          )}
+
           {!isVendor && canEdit && (
             <>
               {/* Status Buttons */}
@@ -348,7 +366,7 @@ function RequestList({ user, branches, onStatusChange, onBranchChange, refreshKe
     setLoading(true);
     let query = supabase
       .from("product_requests")
-      .select("*, categories(name), branches(name), profiles!product_requests_created_by_fkey(full_name)")
+      .select("*, categories(name), branches(name), profiles!product_requests_created_by_fkey(full_name), vendor_response, vendor_delivery_date, vendor_note, vendor_responded_at")
       .order("created_at", { ascending: false });
     if (user.role === "salesman" || user.role === "manager") {
       query = query.eq("branch_id", user.branch_id);
@@ -474,96 +492,198 @@ function Dashboard({ user, branches }) {
 // VENDOR PORTAL
 // ══════════════════════════════════════
 function VendorPortal({ user, branches, categories }) {
-  const [topProducts, setTopProducts] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [catFilter, setCatFilter] = useState("All");
-  const [branchFilter, setBranchFilter] = useState("All");
-  const [stats, setStats] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [responseForm, setResponseForm] = useState({});
+  const [saving, setSaving] = useState(null);
+  const [toast, setToast] = useState(null);
 
-  useEffect(() => { loadData(); }, [catFilter, branchFilter]);
+  useEffect(() => { loadRequests(); }, [catFilter]);
 
-  const loadData = async () => {
-    const bId = branchFilter === "All" ? null : branchFilter;
-    const cId = catFilter === "All" ? null : catFilter;
-    const { data: s } = await supabase.rpc("get_dashboard_stats", { p_branch_id: bId });
-    setStats(s);
-    const { data: tp } = await supabase.rpc("get_top_products", { p_limit: 20, p_branch_id: bId, p_category_id: cId });
-    setTopProducts(tp || []);
+  const loadRequests = async () => {
+    setLoading(true);
+    let query = supabase
+      .from("product_requests")
+      .select("*, categories(name), branches(name)")
+      .eq("status", "Pending")
+      .order("urgency", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (catFilter !== "All") query = query.eq("category_id", catFilter);
+    const { data } = await query;
+    setRequests(data || []);
+    setLoading(false);
   };
 
-  const maxP = topProducts[0]?.request_count || 1;
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const handleRespond = async (req) => {
+    const form = responseForm[req.id] || {};
+    if (!form.vendor_response) return;
+    setSaving(req.id);
+    const { error } = await supabase.from("product_requests").update({
+      vendor_response: form.vendor_response,
+      vendor_delivery_date: form.vendor_delivery_date || null,
+      vendor_note: form.vendor_note || null,
+      vendor_responded_at: new Date().toISOString(),
+      vendor_id: user.id,
+    }).eq("id", req.id);
+    setSaving(null);
+    if (!error) {
+      showToast(form.vendor_response === "can_supply" ? "✅ Response sent!" : "❌ Response sent!");
+      setExpandedId(null);
+      loadRequests();
+    }
+  };
+
+  const setField = (id, key, val) => setResponseForm((f) => ({ ...f, [id]: { ...(f[id] || {}), [key]: val } }));
+
+  const urgencyDot = { Normal: "bg-slate-400", "Urgent (3 days)": "bg-amber-500", "Very Urgent (today)": "bg-red-500" };
+  const urgencyBadge = { Normal: "", "Urgent (3 days)": "🔶 Urgent", "Very Urgent (today)": "🔴 Very Urgent" };
+
+  const pendingCount = requests.filter((r) => !r.vendor_response).length;
+  const respondedCount = requests.filter((r) => r.vendor_response).length;
 
   return (
     <div className="px-4 pt-4 pb-24">
+      {/* Header */}
       <div className="flex justify-between items-start mb-4">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900">Vendor Portal</h2>
-          <p className="text-xs text-slate-400 font-mono">{user.full_name}</p>
+          <h2 className="text-xl font-extrabold text-slate-900">Pending Requests</h2>
+          <p className="text-xs text-slate-400 font-mono">{user.full_name} · Vendor Portal</p>
         </div>
         <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800">🏷️ VENDOR</span>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 flex gap-2.5 items-start">
-        <span className="text-lg">🔒</span>
-        <div>
-          <p className="text-xs font-bold text-amber-800">Customer Privacy Protected</p>
-          <p className="text-[11px] text-amber-700 mt-0.5">You can view product demand, quantities, and branch distribution. Customer details are hidden.</p>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+          <div className="text-xl font-extrabold text-amber-700">{pendingCount}</div>
+          <div className="text-[10px] font-semibold text-amber-600">Awaiting</div>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+          <div className="text-xl font-extrabold text-emerald-700">{respondedCount}</div>
+          <div className="text-[10px] font-semibold text-emerald-600">Responded</div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+          <div className="text-xl font-extrabold text-red-700">{requests.filter((r) => r.urgency === "Very Urgent (today)").length}</div>
+          <div className="text-[10px] font-semibold text-red-600">Very Urgent</div>
         </div>
       </div>
 
-      <div className="flex gap-2 mb-4">
-        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="flex-1 px-2.5 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white">
-          <option value="All">All Categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="flex-1 px-2.5 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white">
-          <option value="All">All Branches</option>
-          {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
+      {/* Privacy Notice */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 mb-4 flex gap-2 items-center">
+        <span>🔒</span>
+        <p className="text-[11px] text-amber-700 font-medium">Customer details hidden. Product & branch info only.</p>
       </div>
 
-      {stats && (
-        <div className="grid grid-cols-2 gap-2.5 mb-5">
-          {[
-            { l: "Total Demand", v: stats.total, c: "text-blue-600", i: "📦" },
-            { l: "Pending", v: stats.pending, c: "text-amber-600", i: "⏳" },
-            { l: "Urgent", v: stats.urgent, c: "text-red-600", i: "🔥" },
-            { l: "This Week", v: stats.this_week, c: "text-violet-600", i: "📊" },
-          ].map((k) => (
-            <div key={k.l} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-              <div className="text-[11px] text-slate-400 font-semibold mb-1">{k.i} {k.l}</div>
-              <div className={`text-2xl font-extrabold ${k.c}`}>{k.v}</div>
-            </div>
-          ))}
+      {/* Category Filter */}
+      <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}
+        className="w-full px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white mb-4">
+        <option value="All">All Categories</option>
+        {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+
+      {/* Request Cards */}
+      {loading ? (
+        <p className="text-center text-slate-400 py-10 text-sm">Loading...</p>
+      ) : requests.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">
+          <div className="text-5xl mb-3">📭</div>
+          <p className="text-sm font-semibold">No pending requests</p>
+          <p className="text-xs mt-1">All caught up!</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {requests.map((req) => {
+            const isOpen = expandedId === req.id;
+            const form = responseForm[req.id] || {};
+            const hasResponse = req.vendor_response;
+            return (
+              <div key={req.id} className={`bg-white rounded-2xl border-2 overflow-hidden shadow-sm transition-all ${hasResponse ? (req.vendor_response === "can_supply" ? "border-emerald-200" : "border-red-200") : "border-slate-100"}`}>
+                {/* Card Header */}
+                <div onClick={() => setExpandedId(isOpen ? null : req.id)} className="px-4 py-3.5 cursor-pointer">
+                  <div className="flex justify-between items-start mb-1">
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${urgencyDot[req.urgency] || "bg-slate-400"}`} />
+                      <span className="text-sm font-bold text-slate-900 leading-tight">{req.product_description}</span>
+                    </div>
+                    {hasResponse ? (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ml-2 ${req.vendor_response === "can_supply" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                        {req.vendor_response === "can_supply" ? "✅ Can Supply" : "❌ Cannot"}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0 ml-2">⏳ Respond</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2.5 pl-4 mt-1 flex-wrap">
+                    <span className="text-[11px] text-slate-400 font-mono">{req.categories?.name || "—"}</span>
+                    <span className="text-[11px] text-slate-400 font-mono">🏪 {req.branches?.name || "—"}</span>
+                    {urgencyBadge[req.urgency] && <span className="text-[11px] font-semibold text-red-500">{urgencyBadge[req.urgency]}</span>}
+                  </div>
+                  {hasResponse && req.vendor_delivery_date && (
+                    <div className="pl-4 mt-1">
+                      <span className="text-[11px] font-semibold text-emerald-600">📅 Delivery: {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+                    </div>
+                  )}
+                  {hasResponse && req.vendor_note && (
+                    <div className="pl-4 mt-0.5">
+                      <span className="text-[11px] text-slate-500 italic">"{req.vendor_note}"</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Response Form */}
+                {isOpen && (
+                  <div className="px-4 pb-4 border-t border-slate-100 pt-3">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Your Response</p>
+
+                    {/* Can / Cannot Supply */}
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <button onClick={() => setField(req.id, "vendor_response", "can_supply")}
+                        className={`py-3 rounded-xl border-2 text-xs font-bold transition ${form.vendor_response === "can_supply" ? "bg-emerald-500 border-emerald-500 text-white" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                        ✅ Can Supply
+                      </button>
+                      <button onClick={() => setField(req.id, "vendor_response", "cannot_supply")}
+                        className={`py-3 rounded-xl border-2 text-xs font-bold transition ${form.vendor_response === "cannot_supply" ? "bg-red-500 border-red-500 text-white" : "border-red-200 bg-red-50 text-red-700"}`}>
+                        ❌ Cannot Supply
+                      </button>
+                    </div>
+
+                    {/* Delivery Date (only if can supply) */}
+                    {form.vendor_response === "can_supply" && (
+                      <div className="mb-3">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">📅 Promised Delivery Date</label>
+                        <input type="date" value={form.vendor_delivery_date || ""} onChange={(e) => setField(req.id, "vendor_delivery_date", e.target.value)}
+                          min={new Date().toISOString().split("T")[0]}
+                          className="w-full px-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-emerald-400" />
+                      </div>
+                    )}
+
+                    {/* Note */}
+                    <div className="mb-3">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">💬 Note to Branch (optional)</label>
+                      <textarea value={form.vendor_note || ""} onChange={(e) => setField(req.id, "vendor_note", e.target.value)}
+                        rows={2} placeholder="e.g. Stock arrives Thursday, color limited..."
+                        className="w-full px-3 py-2.5 text-xs rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-blue-400 resize-none" />
+                    </div>
+
+                    <button onClick={() => handleRespond(req)} disabled={!form.vendor_response || saving === req.id}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-xs shadow disabled:opacity-40">
+                      {saving === req.id ? "Sending..." : "Send Response to Branch"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        {topProducts.length === 0 ? (
-          <div className="text-center py-10 text-slate-400"><div className="text-4xl mb-2">📭</div><p className="text-sm font-semibold">No demand data</p></div>
-        ) : topProducts.map((p, i) => (
-          <div key={i} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 left-0 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-tr" style={{ width: `${(Number(p.request_count) / maxP) * 100}%` }} />
-            <div className="flex justify-between items-start mb-2">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-extrabold text-blue-500 font-mono w-6">{String(i + 1).padStart(2, "0")}</span>
-                  <span className="text-sm font-bold text-slate-900">{p.product}</span>
-                </div>
-                <span className="text-[11px] text-slate-400 font-mono ml-8">{p.category || "—"}</span>
-              </div>
-              <div className="text-right">
-                <div className="text-xl font-extrabold text-slate-900">{String(p.request_count)}</div>
-                <div className="text-[10px] text-slate-400 font-mono">requests</div>
-              </div>
-            </div>
-            <div className="flex gap-1.5 flex-wrap ml-8">
-              {Number(p.pending_count) > 0 && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">⏳ {String(p.pending_count)} pending</span>}
-              {Number(p.urgent_count) > 0 && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-800">🔥 {String(p.urgent_count)} urgent</span>}
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">🏪 {String(p.branch_count)} branches</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {toast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-xl z-50">{toast}</div>
+      )}
     </div>
   );
 }
