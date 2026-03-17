@@ -544,7 +544,7 @@ function VendorPortal({ user, branches, categories }) {
     setLoading(true);
     let query = supabase
       .from("product_requests")
-      .select("*, categories(name), branches(name)")
+      .select("*, categories(name), branches(name), bulk_models")
       .eq("status", "Pending")
       .order("urgency", { ascending: false })
       .order("created_at", { ascending: false });
@@ -660,6 +660,7 @@ function VendorPortal({ user, branches, categories }) {
                     <span className="text-[11px] text-slate-400 font-mono">{req.categories?.name || "—"}</span>
                     <span className="text-[11px] text-slate-400 font-mono">🏪 {req.branches?.name || "—"}</span>
                     {urgencyBadge[req.urgency] && <span className="text-[11px] font-semibold text-red-500">{urgencyBadge[req.urgency]}</span>}
+                    {req.bulk_models && <span className="text-[11px] font-bold text-blue-500">📦 Bulk</span>}
                   </div>
                   {hasResponse && req.vendor_delivery_date && (
                     <div className="pl-4 mt-1">
@@ -681,6 +682,13 @@ function VendorPortal({ user, branches, categories }) {
                 {/* Response Form */}
                 {isOpen && (
                   <div className="px-4 pb-4 border-t border-slate-100 pt-3">
+                    {/* Bulk Models Display */}
+                    {req.bulk_models && (
+                      <div className="mb-3 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">📦 Bulk Model Requirements</p>
+                        <pre className="text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed">{req.bulk_models}</pre>
+                      </div>
+                    )}
                     <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Your Response</p>
 
                     {/* Can / Cannot Supply */}
