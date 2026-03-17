@@ -95,7 +95,7 @@ function NewRequestForm({ user, branches, categories, onSubmit, onCancel }) {
     customer_name: "", customer_phone: "+965 ",
     product_description: "", category_id: categories[0]?.id || "",
     request_type: REQUEST_TYPES[0], urgency: URGENCY_OPTIONS[0],
-    notes: "", branch_id: user.branch_id || branches[0]?.id || "",
+    notes: "", bulk_models: "", branch_id: user.branch_id || branches[0]?.id || "",
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -122,6 +122,7 @@ function NewRequestForm({ user, branches, categories, onSubmit, onCancel }) {
       request_type: form.request_type,
       urgency: form.urgency,
       notes: form.notes.trim(),
+      bulk_models: form.bulk_models.trim() || null,
       branch_id: form.branch_id,
       created_by: user.id,
       status: "Pending",
@@ -201,6 +202,15 @@ function NewRequestForm({ user, branches, categories, onSubmit, onCancel }) {
           <label className={lbl}>Notes (optional)</label>
           <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="Color, budget, etc." className={inp(false)} />
         </div>
+        <div>
+          <label className={lbl}>
+            📦 Bulk Model Requirements <span className="text-slate-400 font-normal normal-case">(optional)</span>
+          </label>
+          <textarea value={form.bulk_models} onChange={(e) => set("bulk_models", e.target.value)} rows={3}
+            placeholder={"e.g.\niPhone 17 Pro Max 256GB Black x2\nSamsung S25 Ultra 512GB x1\nAirPods Pro Gen 3 x3"}
+            className={`${inp(false)} font-mono text-xs`} />
+          <p className="text-[10px] text-slate-400 mt-1">List multiple models line by line — for bulk or multi-item customers</p>
+        </div>
         {errors.submit && <p className="text-xs text-red-500 text-center">{errors.submit}</p>}
         <button onClick={handleSubmit} disabled={submitting}
           className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-500/20 disabled:opacity-50 mt-1">
@@ -270,6 +280,7 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
           <span>{req.category_name || req.categories?.name || "—"}</span>
           <span>{timeAgo(req.created_at)}</span>
           <span>{req.branch_name || req.branches?.name || "—"}</span>
+          {req.bulk_models && <span className="text-blue-500 font-bold">📦 Bulk</span>}
         </div>
         {/* Vendor Badge — visible without expanding */}
         {!isVendor && req.vendor_response && (
@@ -306,6 +317,12 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
           </div>
 
           {req.notes && <p className="text-xs text-slate-500 mb-3 italic bg-slate-50 px-3 py-2 rounded-lg">📝 {req.notes}</p>}
+          {req.bulk_models && (
+            <div className="mb-3 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
+              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">📦 Bulk Model Requirements</p>
+              <pre className="text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed">{req.bulk_models}</pre>
+            </div>
+          )}
 
           {/* Vendor Response Badge */}
           {req.vendor_response && (
