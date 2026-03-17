@@ -536,6 +536,8 @@ function VendorPortal({ user, branches, categories }) {
   const [expandedId, setExpandedId] = useState(null);
   const [responseForm, setResponseForm] = useState({});
   const [saving, setSaving] = useState(null);
+  const [editingNote, setEditingNote] = useState({}); // { req_id: true/false }
+  const [noteText, setNoteText] = useState({});       // { req_id: "text" }
   const [toast, setToast] = useState(null);
 
   useEffect(() => { loadRequests(); }, [catFilter]);
@@ -576,7 +578,18 @@ function VendorPortal({ user, branches, categories }) {
     }
   };
 
-  const setField = (id, key, val) => setResponseForm((f) => ({ ...f, [id]: { ...(f[id] || {}), [key]: val } }));
+  const handleUpdateNote = async (req) => {
+    setSaving(req.id);
+    const { error } = await supabase.from("product_requests")
+      .update({ vendor_note: noteText[req.id] ?? req.vendor_note })
+      .eq("id", req.id);
+    setSaving(null);
+    if (!error) {
+      showToast("📝 Note updated!");
+      setEditingNote((e) => ({ ...e, [req.id]: false }));
+      loadRequests();
+    }
+  };
 
   const urgencyDot = { Normal: "bg-slate-400", "Urgent (3 days)": "bg-amber-500", "Very Urgent (today)": "bg-red-500" };
   const urgencyBadge = { Normal: "", "Urgent (3 days)": "🔶 Urgent", "Very Urgent (today)": "🔴 Very Urgent" };
@@ -736,6 +749,48 @@ function VendorPortal({ user, branches, categories }) {
                       className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-xs shadow disabled:opacity-40">
                       {saving === req.id ? "Sending..." : "Send Response to Branch"}
                     </button>
+
+                    {/* Edit Note — only if already responded */}
+                    {req.vendor_response && (
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <div className="flex justify-between items-center mb-1.5">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">📝 Update Note</p>
+                          {!editingNote[req.id] && (
+                            <button onClick={() => {
+                              setNoteText((n) => ({ ...n, [req.id]: req.vendor_note || "" }));
+                              setEditingNote((e) => ({ ...e, [req.id]: true }));
+                            }} className="text-[10px] font-bold text-blue-500 px-2 py-0.5 rounded-lg bg-blue-50">
+                              ✏️ Edit
+                            </button>
+                          )}
+                        </div>
+                        {editingNote[req.id] ? (
+                          <>
+                            <textarea
+                              value={noteText[req.id] ?? req.vendor_note ?? ""}
+                              onChange={(e) => setNoteText((n) => ({ ...n, [req.id]: e.target.value }))}
+                              rows={3}
+                              placeholder="Update your note to the branch..."
+                              className="w-full px-3 py-2.5 text-xs rounded-lg border-2 border-blue-300 bg-blue-50 outline-none focus:border-blue-500 resize-none"
+                            />
+                            <div className="flex gap-2 mt-2">
+                              <button onClick={() => handleUpdateNote(req)} disabled={saving === req.id}
+                                className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-xs disabled:opacity-40">
+                                {saving === req.id ? "Saving..." : "💾 Save Note"}
+                              </button>
+                              <button onClick={() => setEditingNote((e) => ({ ...e, [req.id]: false }))}
+                                className="px-4 py-2.5 rounded-xl border-2 border-slate-200 text-slate-500 font-bold text-xs">
+                                Cancel
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-xs text-slate-500 italic bg-slate-50 px-3 py-2 rounded-lg">
+                            {req.vendor_note ? `"${req.vendor_note}"` : "No note added yet — tap Edit to add one"}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
