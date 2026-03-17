@@ -341,7 +341,7 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
                   📅 Delivery by {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                 </p>
               )}
-              {req.vendor_note && <p className="text-[11px] text-slate-500 italic ml-6 mt-0.5">"{req.vendor_note}"</p>}
+              {req.vendor_note && <pre className="text-[11px] text-slate-500 italic ml-6 mt-0.5 whitespace-pre-wrap font-sans">"{req.vendor_note}"</pre>}
             </div>
           )}
 
@@ -687,7 +687,7 @@ function VendorPortal({ user, branches, categories }) {
                   )}
                   {hasResponse && req.vendor_note && (
                     <div className="pl-4 mt-0.5">
-                      <span className="text-[11px] text-slate-500 italic">"{req.vendor_note}"</span>
+                      <pre className="text-[11px] text-slate-500 italic whitespace-pre-wrap font-sans">"{req.vendor_note}"</pre>
                     </div>
                   )}
                 </div>
@@ -785,9 +785,9 @@ function VendorPortal({ user, branches, categories }) {
                             </div>
                           </>
                         ) : (
-                          <p className="text-xs text-slate-500 italic bg-slate-50 px-3 py-2 rounded-lg">
+                          <pre className="text-xs text-slate-500 italic bg-slate-50 px-3 py-2 rounded-lg whitespace-pre-wrap font-sans">
                             {req.vendor_note ? `"${req.vendor_note}"` : "No note added yet — tap Edit to add one"}
-                          </p>
+                          </pre>
                         )}
                       </div>
                     )}
