@@ -746,14 +746,16 @@ function VendorPortal({ user, branches, categories }) {
 // ══════════════════════════════════════
 // VENDOR OFFERS
 // ══════════════════════════════════════
-function VendorOffers({ user, categories }) {
+function VendorOffers({ user, categories, branches }) {
   const [offers, setOffers] = useState([]);
+  const [interests, setInterests] = useState({}); // { offer_id: [interest rows] }
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [purchasing, setPurchasing] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
   const [toast, setToast] = useState(null);
-  const [form, setForm] = useState({ product_name: "", category_id: "", price_kwd: "", quantity: "1", description: "", valid_until: "" });
+  const [form, setForm] = useState({ product_name: "", category_id: "", price_kwd: "", quantity: "1", description: "", bulk_models: "", valid_until: "" });
 
   const isVendor = user.role === "vendor";
 
@@ -767,8 +769,23 @@ function VendorOffers({ user, categories }) {
       .order("created_at", { ascending: false });
     if (isVendor) query = query.eq("vendor_id", user.id);
     else query = query.eq("status", "active");
-    const { data } = await query;
-    setOffers(data || []);
+    const { data: offersData } = await query;
+    setOffers(offersData || []);
+
+    // Load interests for all offers
+    if (offersData?.length) {
+      const offerIds = offersData.map((o) => o.id);
+      const { data: interestData } = await supabase
+        .from("offer_interests")
+        .select("*, branches(name), profiles!offer_interests_user_id_fkey(full_name)")
+        .in("offer_id", offerIds);
+      const grouped = {};
+      (interestData || []).forEach((i) => {
+        if (!grouped[i.offer_id]) grouped[i.offer_id] = [];
+        grouped[i.offer_id].push(i);
+      });
+      setInterests(grouped);
+    }
     setLoading(false);
   };
 
@@ -784,6 +801,7 @@ function VendorOffers({ user, categories }) {
       price_kwd: form.price_kwd ? parseFloat(form.price_kwd) : null,
       quantity: parseInt(form.quantity) || 1,
       description: form.description.trim() || null,
+      bulk_models: form.bulk_models.trim() || null,
       valid_until: form.valid_until || null,
       status: "active",
     });
@@ -791,7 +809,7 @@ function VendorOffers({ user, categories }) {
     if (!error) {
       showToast("✅ Offer posted to all branches!");
       setShowForm(false);
-      setForm({ product_name: "", category_id: "", price_kwd: "", quantity: "1", description: "", valid_until: "" });
+      setForm({ product_name: "", category_id: "", price_kwd: "", quantity: "1", description: "", bulk_models: "", valid_until: "" });
       loadOffers();
     }
   };
@@ -804,10 +822,25 @@ function VendorOffers({ user, categories }) {
       purchased_at: new Date().toISOString(),
     }).eq("id", offer.id);
     setPurchasing(null);
-    if (!error) {
-      showToast("🛒 Marked as Purchased!");
-      loadOffers();
+    if (!error) { showToast("🛒 Marked as Purchased!"); loadOffers(); }
+  };
+
+  const handleInterest = async (offer) => {
+    const myInterest = (interests[offer.id] || []).find((i) => i.branch_id === user.branch_id);
+    if (myInterest) {
+      // Remove interest
+      await supabase.from("offer_interests").delete().eq("id", myInterest.id);
+      showToast("Interest removed");
+    } else {
+      // Add interest
+      const { error } = await supabase.from("offer_interests").insert({
+        offer_id: offer.id,
+        branch_id: user.branch_id,
+        user_id: user.id,
+      });
+      if (!error) showToast("✋ Interest noted! Vendor will see your branch.");
     }
+    loadOffers();
   };
 
   const inp = "w-full px-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-blue-400";
@@ -869,7 +902,14 @@ function VendorOffers({ user, categories }) {
             <div>
               <label className={lbl}>Description / Notes</label>
               <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                rows={2} placeholder="Color, condition, specs..." className={`${inp} resize-none`} />
+                rows={2} placeholder="Color, condition, warranty, specs..." className={`${inp} resize-none`} />
+            </div>
+            <div>
+              <label className={lbl}>📦 Bulk Models <span className="font-normal normal-case text-slate-400">(optional)</span></label>
+              <textarea value={form.bulk_models} onChange={(e) => setForm((f) => ({ ...f, bulk_models: e.target.value }))}
+                rows={3} placeholder={"e.g.\niPhone 17 Pro Max 256GB Black x5\nSamsung S25 Ultra 512GB Blue x3\nAirPods Pro Gen 3 x10"}
+                className={`${inp} font-mono resize-none`} />
+              <p className="text-[10px] text-slate-400 mt-1">List models & quantities line by line</p>
             </div>
             <button onClick={handlePost} disabled={!form.product_name.trim() || saving}
               className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-xs shadow disabled:opacity-40">
@@ -890,44 +930,89 @@ function VendorOffers({ user, categories }) {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {offers.map((offer) => (
-            <div key={offer.id} className={`bg-white rounded-2xl border-2 overflow-hidden shadow-sm ${offer.status === "purchased" ? "border-slate-200 opacity-60" : "border-amber-200"}`}>
-              <div className="px-4 py-3.5">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="text-sm font-bold text-slate-900 flex-1">{offer.product_name}</span>
-                  {offer.status === "purchased" ? (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 ml-2">🛒 Purchased</span>
-                  ) : (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 ml-2">🟢 Available</span>
+          {offers.map((offer) => {
+            const offerInterests = interests[offer.id] || [];
+            const myInterest = offerInterests.find((i) => i.branch_id === user.branch_id);
+            const isExpanded = expandedId === offer.id;
+            return (
+              <div key={offer.id} className={`bg-white rounded-2xl border-2 overflow-hidden shadow-sm ${offer.status === "purchased" ? "border-slate-200 opacity-60" : myInterest ? "border-blue-300" : "border-amber-200"}`}>
+                <div className="px-4 py-3.5 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : offer.id)}>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-sm font-bold text-slate-900 flex-1">{offer.product_name}</span>
+                    <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                      {offer.status === "purchased" ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">🛒 Purchased</span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">🟢 Available</span>
+                      )}
+                      <span className="text-slate-300 text-xs">{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2.5 mt-1 flex-wrap">
+                    {offer.categories?.name && <span className="text-[11px] text-slate-400 font-mono">{offer.categories.name}</span>}
+                    {!isVendor && offer.profiles?.full_name && <span className="text-[11px] text-slate-400 font-mono">by {offer.profiles.full_name}</span>}
+                    {offer.quantity && <span className="text-[11px] font-semibold text-slate-600">Qty: {offer.quantity}</span>}
+                    {offer.bulk_models && <span className="text-[11px] font-bold text-blue-500">📦 Bulk</span>}
+                  </div>
+                  <div className="flex gap-3 mt-1.5 flex-wrap">
+                    {offer.price_kwd && <span className="text-sm font-extrabold text-blue-600">💰 KWD {parseFloat(offer.price_kwd).toFixed(3)}</span>}
+                    {offer.valid_until && <span className="text-[11px] font-semibold text-slate-500">Valid till {new Date(offer.valid_until).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
+                  </div>
+                  {/* Branch interest summary on card */}
+                  {offerInterests.length > 0 && (
+                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold text-blue-600">✋ {offerInterests.length} branch{offerInterests.length > 1 ? "es" : ""} interested:</span>
+                      {offerInterests.map((i) => (
+                        <span key={i.id} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{i.branches?.name || "—"}</span>
+                      ))}
+                    </div>
                   )}
                 </div>
-                <div className="flex gap-2.5 mt-1 flex-wrap">
-                  {offer.categories?.name && <span className="text-[11px] text-slate-400 font-mono">{offer.categories.name}</span>}
-                  {!isVendor && offer.profiles?.full_name && <span className="text-[11px] text-slate-400 font-mono">by {offer.profiles.full_name}</span>}
-                  {offer.quantity && <span className="text-[11px] font-semibold text-slate-600">Qty: {offer.quantity}</span>}
-                </div>
-                <div className="flex gap-3 mt-1.5 flex-wrap">
-                  {offer.price_kwd && (
-                    <span className="text-sm font-extrabold text-blue-600">💰 KWD {parseFloat(offer.price_kwd).toFixed(3)}</span>
-                  )}
-                  {offer.valid_until && (
-                    <span className="text-[11px] font-semibold text-slate-500">
-                      Valid till {new Date(offer.valid_until).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                    </span>
-                  )}
-                </div>
-                {offer.description && <p className="text-[11px] text-slate-500 italic mt-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg">"{offer.description}"</p>}
 
-                {/* Purchase button for staff */}
-                {!isVendor && offer.status === "active" && (
-                  <button onClick={() => handlePurchase(offer)} disabled={purchasing === offer.id}
-                    className="w-full mt-3 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-700 text-white font-bold text-xs shadow disabled:opacity-40">
-                    {purchasing === offer.id ? "Marking..." : "🛒 Mark as Purchased"}
-                  </button>
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div className="px-4 pb-4 border-t border-slate-100 pt-3">
+                    {offer.description && <p className="text-xs text-slate-500 italic mb-3 bg-slate-50 px-3 py-2 rounded-lg">"{offer.description}"</p>}
+                    {offer.bulk_models && (
+                      <div className="mb-3 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1.5">📦 Bulk Models Available</p>
+                        <pre className="text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed">{offer.bulk_models}</pre>
+                      </div>
+                    )}
+
+                    {/* Interested branches (detailed — for vendor) */}
+                    {isVendor && offerInterests.length > 0 && (
+                      <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider mb-2">✋ Interested Branches ({offerInterests.length})</p>
+                        <div className="flex flex-col gap-1.5">
+                          {offerInterests.map((i) => (
+                            <div key={i.id} className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-slate-700">🏪 {i.branches?.name || "—"}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{i.profiles?.full_name || "—"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Staff actions */}
+                    {!isVendor && offer.status === "active" && (
+                      <div className="flex gap-2">
+                        <button onClick={() => handleInterest(offer)}
+                          className={`flex-1 py-2.5 rounded-xl border-2 text-xs font-bold transition ${myInterest ? "bg-blue-600 border-blue-600 text-white" : "bg-blue-50 border-blue-200 text-blue-700"}`}>
+                          {myInterest ? "✋ Interested ✓" : "✋ I'm Interested"}
+                        </button>
+                        <button onClick={() => handlePurchase(offer)} disabled={purchasing === offer.id}
+                          className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-700 text-white font-bold text-xs shadow disabled:opacity-40">
+                          {purchasing === offer.id ? "..." : "🛒 Purchased"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1054,7 +1139,7 @@ export default function App() {
       ) : screen === "dashboard" && !isVendor ? (
         <Dashboard user={user} branches={branches} />
       ) : screen === "offers" ? (
-        <VendorOffers user={user} categories={categories} />
+        <VendorOffers user={user} categories={categories} branches={branches} />
       ) : isVendor ? (
         <VendorPortal user={user} branches={branches} categories={categories} />
       ) : (
