@@ -277,6 +277,11 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${req.vendor_response === "can_supply" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
               {req.vendor_response === "can_supply" ? "✅ Vendor: Can Supply" : "❌ Vendor: Cannot Supply"}
             </span>
+            {req.vendor_price && (
+              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                💰 KWD {parseFloat(req.vendor_price).toFixed(3)}
+              </span>
+            )}
             {req.vendor_delivery_date && (
               <span className="text-[10px] font-semibold text-emerald-600">
                 📅 {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
@@ -311,6 +316,9 @@ function RequestCard({ req, onStatusChange, onBranchChange, canEdit, isVendor, b
                   Vendor: {req.vendor_response === "can_supply" ? "Can Supply" : "Cannot Supply"}
                 </span>
               </div>
+              {req.vendor_price && (
+                <p className="text-xs font-extrabold text-blue-600 ml-6">💰 KWD {parseFloat(req.vendor_price).toFixed(3)}</p>
+              )}
               {req.vendor_delivery_date && (
                 <p className="text-[11px] text-emerald-600 font-semibold ml-6">
                   📅 Delivery by {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
@@ -539,6 +547,7 @@ function VendorPortal({ user, branches, categories }) {
       vendor_response: form.vendor_response,
       vendor_delivery_date: form.vendor_delivery_date || null,
       vendor_note: form.vendor_note || null,
+      vendor_price: form.vendor_price ? parseFloat(form.vendor_price) : null,
       vendor_responded_at: new Date().toISOString(),
       vendor_id: user.id,
     }).eq("id", req.id);
@@ -640,6 +649,11 @@ function VendorPortal({ user, branches, categories }) {
                       <span className="text-[11px] font-semibold text-emerald-600">📅 Delivery: {new Date(req.vendor_delivery_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
                     </div>
                   )}
+                  {hasResponse && req.vendor_price && (
+                    <div className="pl-4 mt-0.5">
+                      <span className="text-[11px] font-bold text-blue-600">💰 KWD {parseFloat(req.vendor_price).toFixed(3)}</span>
+                    </div>
+                  )}
                   {hasResponse && req.vendor_note && (
                     <div className="pl-4 mt-0.5">
                       <span className="text-[11px] text-slate-500 italic">"{req.vendor_note}"</span>
@@ -664,14 +678,25 @@ function VendorPortal({ user, branches, categories }) {
                       </button>
                     </div>
 
-                    {/* Delivery Date (only if can supply) */}
+                    {/* Delivery Date & Price (only if can supply) */}
                     {form.vendor_response === "can_supply" && (
-                      <div className="mb-3">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">📅 Promised Delivery Date</label>
-                        <input type="date" value={form.vendor_delivery_date || ""} onChange={(e) => setField(req.id, "vendor_delivery_date", e.target.value)}
-                          min={new Date().toISOString().split("T")[0]}
-                          className="w-full px-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-emerald-400" />
-                      </div>
+                      <>
+                        <div className="mb-3">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">📅 Promised Delivery Date</label>
+                          <input type="date" value={form.vendor_delivery_date || ""} onChange={(e) => setField(req.id, "vendor_delivery_date", e.target.value)}
+                            min={new Date().toISOString().split("T")[0]}
+                            className="w-full px-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-emerald-400" />
+                        </div>
+                        <div className="mb-3">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">💰 Offer Price (KWD)</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">KWD</span>
+                            <input type="number" step="0.001" min="0" value={form.vendor_price || ""} onChange={(e) => setField(req.id, "vendor_price", e.target.value)}
+                              placeholder="0.000"
+                              className="w-full pl-12 pr-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-blue-400" />
+                          </div>
+                        </div>
+                      </>
                     )}
 
                     {/* Note */}
@@ -691,6 +716,201 @@ function VendorPortal({ user, branches, categories }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-xl z-50">{toast}</div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// VENDOR OFFERS
+// ══════════════════════════════════════
+function VendorOffers({ user, categories }) {
+  const [offers, setOffers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [purchasing, setPurchasing] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [form, setForm] = useState({ product_name: "", category_id: "", price_kwd: "", quantity: "1", description: "", valid_until: "" });
+
+  const isVendor = user.role === "vendor";
+
+  useEffect(() => { loadOffers(); }, []);
+
+  const loadOffers = async () => {
+    setLoading(true);
+    let query = supabase
+      .from("vendor_offers")
+      .select("*, categories(name), profiles!vendor_offers_vendor_id_fkey(full_name)")
+      .order("created_at", { ascending: false });
+    if (isVendor) query = query.eq("vendor_id", user.id);
+    else query = query.eq("status", "active");
+    const { data } = await query;
+    setOffers(data || []);
+    setLoading(false);
+  };
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const handlePost = async () => {
+    if (!form.product_name.trim()) return;
+    setSaving(true);
+    const { error } = await supabase.from("vendor_offers").insert({
+      vendor_id: user.id,
+      product_name: form.product_name.trim(),
+      category_id: form.category_id || null,
+      price_kwd: form.price_kwd ? parseFloat(form.price_kwd) : null,
+      quantity: parseInt(form.quantity) || 1,
+      description: form.description.trim() || null,
+      valid_until: form.valid_until || null,
+      status: "active",
+    });
+    setSaving(false);
+    if (!error) {
+      showToast("✅ Offer posted to all branches!");
+      setShowForm(false);
+      setForm({ product_name: "", category_id: "", price_kwd: "", quantity: "1", description: "", valid_until: "" });
+      loadOffers();
+    }
+  };
+
+  const handlePurchase = async (offer) => {
+    setPurchasing(offer.id);
+    const { error } = await supabase.from("vendor_offers").update({
+      status: "purchased",
+      purchased_by: user.id,
+      purchased_at: new Date().toISOString(),
+    }).eq("id", offer.id);
+    setPurchasing(null);
+    if (!error) {
+      showToast("🛒 Marked as Purchased!");
+      loadOffers();
+    }
+  };
+
+  const inp = "w-full px-3 py-2.5 text-xs font-semibold rounded-lg border-2 border-slate-200 bg-slate-50 outline-none focus:border-blue-400";
+  const lbl = "text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1";
+
+  return (
+    <div className="px-4 pt-4 pb-24">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-xl font-extrabold text-slate-900">Vendor Offers</h2>
+          <p className="text-xs text-slate-400 font-mono">{isVendor ? "Push stock to all branches" : "Available from vendors"}</p>
+        </div>
+        {isVendor && (
+          <button onClick={() => setShowForm(!showForm)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-xs font-bold shadow">
+            {showForm ? "✕ Cancel" : "+ New Offer"}
+          </button>
+        )}
+      </div>
+
+      {/* Post Offer Form (vendor only) */}
+      {isVendor && showForm && (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 mb-4">
+          <p className="text-xs font-bold text-amber-800 mb-3">📢 Push Stock to All Branches</p>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className={lbl}>Product Name *</label>
+              <input value={form.product_name} onChange={(e) => setForm((f) => ({ ...f, product_name: e.target.value }))}
+                placeholder="e.g. Samsung Galaxy S25 Ultra 256GB" className={inp} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={lbl}>Category</label>
+                <select value={form.category_id} onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))} className={inp}>
+                  <option value="">Select...</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={lbl}>Qty Available</label>
+                <input type="number" min="1" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} className={inp} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={lbl}>💰 Price (KWD)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">KWD</span>
+                  <input type="number" step="0.001" min="0" value={form.price_kwd} onChange={(e) => setForm((f) => ({ ...f, price_kwd: e.target.value }))}
+                    placeholder="0.000" className={`${inp} pl-10`} />
+                </div>
+              </div>
+              <div>
+                <label className={lbl}>Valid Until</label>
+                <input type="date" value={form.valid_until} onChange={(e) => setForm((f) => ({ ...f, valid_until: e.target.value }))}
+                  min={new Date().toISOString().split("T")[0]} className={inp} />
+              </div>
+            </div>
+            <div>
+              <label className={lbl}>Description / Notes</label>
+              <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                rows={2} placeholder="Color, condition, specs..." className={`${inp} resize-none`} />
+            </div>
+            <button onClick={handlePost} disabled={!form.product_name.trim() || saving}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-xs shadow disabled:opacity-40">
+              {saving ? "Posting..." : "📢 Post Offer to All Branches"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Offers List */}
+      {loading ? (
+        <p className="text-center text-slate-400 py-10 text-sm">Loading...</p>
+      ) : offers.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">
+          <div className="text-5xl mb-3">📦</div>
+          <p className="text-sm font-semibold">{isVendor ? "No offers posted yet" : "No active vendor offers"}</p>
+          {isVendor && <p className="text-xs mt-1">Tap "+ New Offer" to push stock to branches</p>}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {offers.map((offer) => (
+            <div key={offer.id} className={`bg-white rounded-2xl border-2 overflow-hidden shadow-sm ${offer.status === "purchased" ? "border-slate-200 opacity-60" : "border-amber-200"}`}>
+              <div className="px-4 py-3.5">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-sm font-bold text-slate-900 flex-1">{offer.product_name}</span>
+                  {offer.status === "purchased" ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 ml-2">🛒 Purchased</span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 ml-2">🟢 Available</span>
+                  )}
+                </div>
+                <div className="flex gap-2.5 mt-1 flex-wrap">
+                  {offer.categories?.name && <span className="text-[11px] text-slate-400 font-mono">{offer.categories.name}</span>}
+                  {!isVendor && offer.profiles?.full_name && <span className="text-[11px] text-slate-400 font-mono">by {offer.profiles.full_name}</span>}
+                  {offer.quantity && <span className="text-[11px] font-semibold text-slate-600">Qty: {offer.quantity}</span>}
+                </div>
+                <div className="flex gap-3 mt-1.5 flex-wrap">
+                  {offer.price_kwd && (
+                    <span className="text-sm font-extrabold text-blue-600">💰 KWD {parseFloat(offer.price_kwd).toFixed(3)}</span>
+                  )}
+                  {offer.valid_until && (
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      Valid till {new Date(offer.valid_until).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </span>
+                  )}
+                </div>
+                {offer.description && <p className="text-[11px] text-slate-500 italic mt-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg">"{offer.description}"</p>}
+
+                {/* Purchase button for staff */}
+                {!isVendor && offer.status === "active" && (
+                  <button onClick={() => handlePurchase(offer)} disabled={purchasing === offer.id}
+                    className="w-full mt-3 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-700 text-white font-bold text-xs shadow disabled:opacity-40">
+                    {purchasing === offer.id ? "Marking..." : "🛒 Mark as Purchased"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -784,10 +1004,14 @@ export default function App() {
 
   const isVendor = user.role === "vendor";
   const NAV = isVendor
-    ? [{ id: "vendor", icon: "📊", label: "Demand" }]
+    ? [
+        { id: "vendor", icon: "📋", label: "Requests" },
+        { id: "offers", icon: "📢", label: "My Offers" },
+      ]
     : [
         { id: "list", icon: "📋", label: "Requests" },
         { id: "new", icon: "➕", label: "New" },
+        { id: "offers", icon: "📦", label: "Offers" },
         ...(user.role !== "salesman" ? [{ id: "dashboard", icon: "📊", label: "Dashboard" }] : []),
       ];
 
@@ -812,6 +1036,8 @@ export default function App() {
         <NewRequestForm user={user} branches={branches} categories={categories} onSubmit={handleSubmitRequest} onCancel={() => setScreen("list")} />
       ) : screen === "dashboard" && !isVendor ? (
         <Dashboard user={user} branches={branches} />
+      ) : screen === "offers" ? (
+        <VendorOffers user={user} categories={categories} />
       ) : isVendor ? (
         <VendorPortal user={user} branches={branches} categories={categories} />
       ) : (
